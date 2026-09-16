@@ -19,7 +19,7 @@ jobs:
         include:
           # PUTF a695ecd passed in run 35099453702; unchanged since that run.
           - name: raw-integer
-            ref: 5ef862fae64d3e767591d39ff5056a04f1e1c6e6
+            ref: 9d92ba1a113b57ff7792a1c36c27339f1c3dc638
             test: utl_raw_integer
     runs-on: ubuntu-24.04
     timeout-minutes: 30
