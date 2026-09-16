@@ -18,10 +18,10 @@ jobs:
       matrix:
         include:
           - name: putf
-            ref: c98950b2578008a1698aa5ca59e2c2ff00def83e
+            ref: a695ecd9eba328728efac5f592e0b5ca8656a167
             test: utl_file_putf
           - name: raw-integer
-            ref: 434eb5f2334432095715f0c6c322409381628a63
+            ref: 052e0bd68b168078f71aad1abf09393c9f12dfad
             test: utl_raw_integer
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -52,6 +52,7 @@ jobs:
           git diff > validation-logs/ci-only-build-exclusion.patch
           ./configure --prefix="$PWD/inst" --without-icu --with-libxml --with-uuid=e2fs --enable-cassert --enable-debug > validation-logs/configure.log 2>&1
       - name: Build and install
+        id: build
         run: |
           make -j2 > validation-logs/build.log 2>&1 || { tail -n 100 validation-logs/build.log; exit 1; }
           make install > validation-logs/install.log 2>&1 || { tail -n 100 validation-logs/install.log; exit 1; }
@@ -59,8 +60,9 @@ jobs:
         run: |
           make -C contrib/ivorysql_ora oracle-check ORA_REGRESS=${{ matrix.test }} > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
           cat validation-logs/focused.log
+          cp contrib/ivorysql_ora/results/${{ matrix.test }}.out validation-logs/focused-results.out
       - name: Run complete extension regression
-        if: ${{ !cancelled() && steps.build.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           make -C contrib/ivorysql_ora oracle-check > validation-logs/extension.log 2>&1 || { cat validation-logs/extension.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
           cat validation-logs/extension.log
