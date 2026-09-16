@@ -17,11 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: putf
-            ref: a695ecd9eba328728efac5f592e0b5ca8656a167
-            test: utl_file_putf
+          # PUTF a695ecd passed in run 35099453702; unchanged since that run.
           - name: raw-integer
-            ref: 052e0bd68b168078f71aad1abf09393c9f12dfad
+            ref: 6596559b9c561798abe3ba8739fd49e79593abf7
             test: utl_raw_integer
     runs-on: ubuntu-24.04
     timeout-minutes: 30
