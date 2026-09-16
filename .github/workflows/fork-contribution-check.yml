@@ -1,0 +1,50 @@
+name: Fork contribution validation
+
+on:
+  push:
+    branches: [validation/ivorysql-contributions]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-contribution-validation
+  cancel-in-progress: true
+
+jobs:
+  putf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c98950b2578008a1698aa5ca59e2c2ff00def83e
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex libreadline-dev libxml2-dev uuid-dev libssl-dev zlib1g-dev libipc-run-perl
+      - name: Record revision and configure
+        run: |
+          mkdir -p validation-logs
+          git rev-parse HEAD | tee validation-logs/revision.txt
+          ./configure --prefix="$PWD/inst" --without-icu --with-libxml --with-uuid=e2fs --enable-cassert --enable-debug 2>&1 | tee validation-logs/configure.log
+      - name: Build and install
+        run: |
+          make -j2 2>&1 | tee validation-logs/build.log
+          make install 2>&1 | tee validation-logs/install.log
+      - name: Run focused and extension regressions
+        run: |
+          make -C contrib/ivorysql_ora oracle-check ORA_REGRESS=utl_file_putf 2>&1 | tee validation-logs/putf.log
+          make -C contrib/ivorysql_ora oracle-check 2>&1 | tee validation-logs/extension.log
+      - name: Collect regression evidence
+        if: always()
+        run: |
+          mkdir -p validation-logs
+          find . -type f \( -name regression.diffs -o -name regression.out -o -name initdb.log -o -name postmaster.log \) -not -path './validation-logs/*' -exec cp --parents '{}' validation-logs/ \;
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: putf-validation
+          path: validation-logs
+          retention-days: 7
