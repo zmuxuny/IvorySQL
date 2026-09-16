@@ -12,31 +12,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  putf:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: putf
+            ref: c98950b2578008a1698aa5ca59e2c2ff00def83e
+            test: utl_file_putf
+          - name: raw-integer
+            ref: 434eb5f2334432095715f0c6c322409381628a63
+            test: utl_raw_integer
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: c98950b2578008a1698aa5ca59e2c2ff00def83e
+          ref: ${{ matrix.ref }}
           persist-credentials: false
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bison flex libreadline-dev libxml2-dev uuid-dev libssl-dev zlib1g-dev libipc-run-perl
-      - name: Record revision and configure
+      - name: Record revision and prepare reduced utility build
         run: |
           mkdir -p validation-logs
           git rev-parse HEAD | tee validation-logs/revision.txt
-          ./configure --prefix="$PWD/inst" --without-icu --with-libxml --with-uuid=e2fs --enable-cassert --enable-debug 2>&1 | tee validation-logs/configure.log
+          # The first full build failed in unmodified pg_rewind linkage.
+          # Exclude that utility in this disposable working tree only. This
+          # is not a successful all-utilities build or a feature-branch change.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/bin/Makefile')
+          s = p.read_text()
+          marker = '$(recurse)'
+          assert marker in s
+          p.write_text(s.replace(marker, 'SUBDIRS := $(filter-out pg_rewind,$(SUBDIRS))\n\n' + marker, 1))
+          PY
+          git diff > validation-logs/ci-only-build-exclusion.patch
+          ./configure --prefix="$PWD/inst" --without-icu --with-libxml --with-uuid=e2fs --enable-cassert --enable-debug > validation-logs/configure.log 2>&1
       - name: Build and install
         run: |
-          make -j2 2>&1 | tee validation-logs/build.log
-          make install 2>&1 | tee validation-logs/install.log
-      - name: Run focused and extension regressions
+          make -j2 > validation-logs/build.log 2>&1 || { tail -n 100 validation-logs/build.log; exit 1; }
+          make install > validation-logs/install.log 2>&1 || { tail -n 100 validation-logs/install.log; exit 1; }
+      - name: Run focused regression
         run: |
-          make -C contrib/ivorysql_ora oracle-check ORA_REGRESS=utl_file_putf 2>&1 | tee validation-logs/putf.log
-          make -C contrib/ivorysql_ora oracle-check 2>&1 | tee validation-logs/extension.log
+          make -C contrib/ivorysql_ora oracle-check ORA_REGRESS=${{ matrix.test }} > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
+          cat validation-logs/focused.log
+      - name: Run complete extension regression
+        if: ${{ !cancelled() && steps.build.outcome != 'failure' }}
+        run: |
+          make -C contrib/ivorysql_ora oracle-check > validation-logs/extension.log 2>&1 || { cat validation-logs/extension.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
+          cat validation-logs/extension.log
       - name: Collect regression evidence
         if: always()
         run: |
@@ -45,6 +72,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: putf-validation
+          name: ${{ matrix.name }}-validation
           path: validation-logs
           retention-days: 7
