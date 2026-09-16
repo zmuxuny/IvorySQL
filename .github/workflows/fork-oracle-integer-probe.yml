@@ -1,0 +1,80 @@
+name: Oracle integer compatibility probe
+on:
+  push:
+    branches: [validation/oracle-integer-probe]
+permissions:
+  contents: read
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Run disposable Oracle reference instance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe-logs
+          image=gvenzl/oracle-free:23-slim-faststart
+          docker pull "$image"
+          docker image inspect "$image" --format '{{json .RepoDigests}}' | tee probe-logs/image.txt
+          # This password belongs only to a disposable, network-isolated CI instance.
+          # No host ports or repository credentials are exposed to the container.
+          docker run -d --name ivory-oracle-probe --network none -e ORACLE_PASSWORD=Disposable_CI_Only_2026 "$image"
+          trap 'docker rm -f ivory-oracle-probe >/dev/null 2>&1 || true' EXIT
+          ready=false
+          for i in $(seq 1 90); do
+            if docker exec ivory-oracle-probe healthcheck.sh >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" = true
+          docker exec -i -u oracle ivory-oracle-probe sqlplus -s '/ as sysdba' <<'SQL' | tee probe-logs/oracle-integer.txt
+          WHENEVER SQLERROR EXIT FAILURE
+          SET SERVEROUTPUT ON SIZE UNLIMITED
+          SET LINESIZE 200
+          SET PAGESIZE 100
+          SELECT banner_full FROM v$version;
+          DECLARE
+            PROCEDURE enc(n NUMBER, e NUMBER) IS
+              r RAW(32767);
+            BEGIN
+              r := utl_raw.cast_from_binary_integer(n, e);
+              dbms_output.put_line('ENC n=' || NVL(TO_CHAR(n), 'NULL') || ' e=' || NVL(TO_CHAR(e), 'NULL') || ' -> ' || NVL(RAWTOHEX(r), 'NULL'));
+            EXCEPTION WHEN OTHERS THEN
+              dbms_output.put_line('ENC n=' || NVL(TO_CHAR(n), 'NULL') || ' e=' || NVL(TO_CHAR(e), 'NULL') || ' -> ERROR ' || SQLCODE || ' ' || SQLERRM);
+            END;
+            PROCEDURE deci(h VARCHAR2, e NUMBER) IS
+              n BINARY_INTEGER;
+            BEGIN
+              n := utl_raw.cast_to_binary_integer(HEXTORAW(h), e);
+              dbms_output.put_line('DEC h=' || NVL(h, 'NULL') || ' e=' || NVL(TO_CHAR(e), 'NULL') || ' -> ' || NVL(TO_CHAR(n), 'NULL'));
+            EXCEPTION WHEN OTHERS THEN
+              dbms_output.put_line('DEC h=' || NVL(h, 'NULL') || ' e=' || NVL(TO_CHAR(e), 'NULL') || ' -> ERROR ' || SQLCODE || ' ' || SQLERRM);
+            END;
+          BEGIN
+            FOR e IN 1..3 LOOP
+              enc(16909060,e); enc(-1,e); enc(-2147483648,e); enc(2147483647,e);
+              deci('01020304',e); deci('FFFFFFFF',e); deci('80000000',e);
+              deci('01',e); deci('0102',e); deci('010203',e);
+              deci('0102030405',e); deci('010203040506',e);
+              deci(NULL,e);
+            END LOOP;
+            enc(1,NULL); enc(1,0); enc(1,4); enc(1,-1);
+            enc(NULL,1); enc(NULL,NULL); enc(NULL,4);
+            enc(1.5,1); enc(-1.5,1); enc(2147483648,1); enc(-2147483649,1);
+            deci('01020304',NULL); deci('01020304',0); deci('01020304',4);
+            deci(NULL,NULL); deci(NULL,4);
+            dbms_output.put_line('DEFAULT ENC=' || RAWTOHEX(utl_raw.cast_from_binary_integer(16909060)));
+            dbms_output.put_line('DEFAULT DEC=' || utl_raw.cast_to_binary_integer(HEXTORAW('01020304')));
+          END;
+          /
+          EXIT SUCCESS
+          SQL
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oracle-integer-reference
+          path: probe-logs
+          retention-days: 7
