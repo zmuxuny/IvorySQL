@@ -7,7 +7,7 @@ permissions:
 jobs:
   oracle:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - name: Run disposable Oracle reference instance
         shell: bash
@@ -17,19 +17,21 @@ jobs:
           image=gvenzl/oracle-free:23-slim-faststart
           docker pull "$image"
           docker image inspect "$image" --format '{{json .RepoDigests}}' | tee probe-logs/image.txt
-          # This password belongs only to a disposable, network-isolated CI instance.
-          # No host ports or repository credentials are exposed to the container.
-          docker run -d --name ivory-oracle-probe --network none -e ORACLE_PASSWORD=Disposable_CI_Only_2026 "$image"
-          trap 'docker rm -f ivory-oracle-probe >/dev/null 2>&1 || true' EXIT
+          # Disposable test password, no host ports, credentials or source mounts.
+          # An internal Docker network allows hostname resolution without internet access.
+          docker network create --internal ivory-probe-net
+          trap 'docker logs ivory-oracle-probe > probe-logs/startup.log 2>&1 || true; docker rm -f ivory-oracle-probe >/dev/null 2>&1 || true; docker network rm ivory-probe-net >/dev/null 2>&1 || true' EXIT
+          docker run -d --name ivory-oracle-probe --hostname ivory-oracle-probe --network ivory-probe-net --shm-size=1g -e ORACLE_PASSWORD=Disposable_CI_Only_2026 "$image"
           ready=false
-          for i in $(seq 1 90); do
-            if docker exec ivory-oracle-probe healthcheck.sh >/dev/null 2>&1; then
+          for i in $(seq 1 60); do
+            if docker exec ivory-oracle-probe healthcheck.sh > probe-logs/healthcheck.log 2>&1; then
               ready=true
               break
             fi
+            if [ "$(docker inspect -f '{{.State.Running}}' ivory-oracle-probe)" != true ]; then break; fi
             sleep 5
           done
-          test "$ready" = true
+          if [ "$ready" != true ]; then docker logs ivory-oracle-probe; cat probe-logs/healthcheck.log; exit 1; fi
           docker exec -i -u oracle ivory-oracle-probe sqlplus -s '/ as sysdba' <<'SQL' | tee probe-logs/oracle-integer.txt
           WHENEVER SQLERROR EXIT FAILURE
           SET SERVEROUTPUT ON SIZE UNLIMITED
