@@ -13,32 +13,21 @@ concurrency:
 
 jobs:
   regression:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # PUTF a695ecd passed in run 35099453702; unchanged since that run.
-          - name: raw-integer
-            ref: 92b55fa4ec2ca2343802a6b1a15aa1d3a90c4020
-            test: utl_raw_integer
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.ref }}
+          ref: 75f359c3d04cf4baac8dbbfd163d875bb733b3f1
           persist-credentials: false
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bison flex libreadline-dev libxml2-dev uuid-dev libssl-dev zlib1g-dev libipc-run-perl
-      - name: Record revision and prepare reduced utility build
+      - name: Configure reduced utility build
         run: |
           mkdir -p validation-logs
           git rev-parse HEAD | tee validation-logs/revision.txt
-          # The first full build failed in unmodified pg_rewind linkage.
-          # Exclude that utility in this disposable working tree only. This
-          # is not a successful all-utilities build or a feature-branch change.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('src/bin/Makefile')
@@ -52,26 +41,27 @@ jobs:
       - name: Build and install
         id: build
         run: |
-          make -j2 > validation-logs/build.log 2>&1 || { tail -n 100 validation-logs/build.log; exit 1; }
-          make install > validation-logs/install.log 2>&1 || { tail -n 100 validation-logs/install.log; exit 1; }
-      - name: Run focused regression
+          make -j2 > validation-logs/build.log 2>&1 || { tail -n 120 validation-logs/build.log; exit 1; }
+          make install > validation-logs/install.log 2>&1 || { tail -n 120 validation-logs/install.log; exit 1; }
+      - name: Focused PL/iSQL regression
         run: |
-          make -C contrib/ivorysql_ora oracle-check ORA_REGRESS=${{ matrix.test }} > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
+          make -C src/pl/plisql/src oracle-check REGRESS=plisql_arg_coercion > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find src/pl/plisql/src -name regression.diffs -exec cat '{}' \;; exit 1; }
           cat validation-logs/focused.log
-          cp contrib/ivorysql_ora/results/${{ matrix.test }}.out validation-logs/focused-results.out
-      - name: Run complete extension regression
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+      - name: Full PL/iSQL regression
         run: |
-          make -C contrib/ivorysql_ora oracle-check > validation-logs/extension.log 2>&1 || { cat validation-logs/extension.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
-          cat validation-logs/extension.log
+          make -C src/pl/plisql/src oracle-check > validation-logs/plisql-full.log 2>&1 || { cat validation-logs/plisql-full.log; find src/pl/plisql/src -name regression.diffs -exec cat '{}' \;; exit 1; }
+          cat validation-logs/plisql-full.log
+      - name: Oracle core regression
+        run: |
+          make oracle-check > validation-logs/oracle-core.log 2>&1 || { cat validation-logs/oracle-core.log; find src/oracle_test -name regression.diffs -exec cat '{}' \;; exit 1; }
+          tail -n 120 validation-logs/oracle-core.log
       - name: Collect regression evidence
         if: always()
         run: |
-          mkdir -p validation-logs
           find . -type f \( -name regression.diffs -o -name regression.out -o -name initdb.log -o -name postmaster.log \) -not -path './validation-logs/*' -exec cp --parents '{}' validation-logs/ \;
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.name }}-validation
+          name: plisql-assignment-coercion-validation
           path: validation-logs
           retention-days: 7
