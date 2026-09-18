@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: cf3df3c2df1d21ec8d9891c90b9c55e47f008ead
+          ref: b66606c8b4eb9f7012cb9f27629726c53be54aed
           persist-credentials: false
       - name: Install build dependencies
         run: |
@@ -43,9 +43,9 @@ jobs:
         run: |
           make -j2 > validation-logs/build.log 2>&1 || { tail -n 120 validation-logs/build.log; exit 1; }
           make install > validation-logs/install.log 2>&1 || { tail -n 120 validation-logs/install.log; exit 1; }
-      - name: Focused PL/iSQL regression
+      - name: Focused combined regressions
         run: |
-          make -C src/pl/plisql/src oracle-check REGRESS=plisql_pls_integer > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find src/pl/plisql/src -name regression.diffs -exec cat '{}' \;; exit 1; }
+          make -C src/pl/plisql/src oracle-check REGRESS='plisql_arg_coercion plisql_pls_integer' > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find src/pl/plisql/src -name regression.diffs -exec cat '{}' \;; exit 1; }
           cat validation-logs/focused.log
       - name: Full PL/iSQL regression
         run: |
@@ -55,6 +55,10 @@ jobs:
         run: |
           make oracle-check > validation-logs/oracle-core.log 2>&1 || { cat validation-logs/oracle-core.log; find src/oracle_test -name regression.diffs -exec cat '{}' \;; exit 1; }
           tail -n 120 validation-logs/oracle-core.log
+      - name: Full ivorysql_ora regression
+        run: |
+          make -C contrib/ivorysql_ora oracle-check > validation-logs/ivorysql-ora.log 2>&1 || { cat validation-logs/ivorysql-ora.log; find contrib/ivorysql_ora -name regression.diffs -exec cat '{}' \;; exit 1; }
+          cat validation-logs/ivorysql-ora.log
       - name: Collect regression evidence
         if: always()
         run: |
