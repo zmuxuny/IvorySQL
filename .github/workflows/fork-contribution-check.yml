@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: c162d51636198d8b8402092a4040083ec096bbaa
+          ref: 2fe5d31594ff69102cdfc922da4ce10d6a8ae913
           persist-credentials: false
       - name: Install build dependencies
         run: |
@@ -66,6 +66,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: plisql-assignment-coercion-validation
+          name: plisql-pls-integer-validation
           path: validation-logs
           retention-days: 7
