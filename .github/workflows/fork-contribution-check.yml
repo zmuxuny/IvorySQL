@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e67ef061b74d2a9b67ae6d0d2bd18f977f113339
+          ref: cf3df3c2df1d21ec8d9891c90b9c55e47f008ead
           persist-credentials: false
       - name: Install build dependencies
         run: |
@@ -45,7 +45,7 @@ jobs:
           make install > validation-logs/install.log 2>&1 || { tail -n 120 validation-logs/install.log; exit 1; }
       - name: Focused PL/iSQL regression
         run: |
-          make -C src/pl/plisql/src oracle-check REGRESS=plisql_arg_coercion > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find src/pl/plisql/src -name regression.diffs -exec cat '{}' \;; exit 1; }
+          make -C src/pl/plisql/src oracle-check REGRESS=plisql_pls_integer > validation-logs/focused.log 2>&1 || { cat validation-logs/focused.log; find src/pl/plisql/src -name regression.diffs -exec cat '{}' \;; exit 1; }
           cat validation-logs/focused.log
       - name: Full PL/iSQL regression
         run: |
