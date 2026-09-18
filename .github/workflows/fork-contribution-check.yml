@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 75f359c3d04cf4baac8dbbfd163d875bb733b3f1
+          ref: e67ef061b74d2a9b67ae6d0d2bd18f977f113339
           persist-credentials: false
       - name: Install build dependencies
         run: |
